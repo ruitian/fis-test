@@ -9,6 +9,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formataddr, formatdate, parseaddr, make_msgid
 
+
 # python 2
 string_types = basestring,
 text_type = unicode
@@ -121,7 +122,7 @@ class Message(object):
                  mail_options=None,
                  rcpt_options=None):
 
-            sender = sender
+            sender = sender or Application.extensions['mail'].default_sender
             if isinstance(sender, tuple):
                 sender = '%s <%s>' % sender
 
@@ -225,15 +226,16 @@ class Message(object):
 
 class _MailMixin(object):
 
-    def send(self, message, mail):
-        with self.connect(mail) as connection:
+    def send(self, message):
+        with self.connect() as connection:
             message.send(connection)
 
     def send_message(self, *args, **kwargs):
         self.send(Message(*args, **kwargs))
 
-    def connect(self, email):
-        return Connection(email)
+    def connect(self):
+        app = getattr(self, 'app', None)
+        return Connection(app.extensions['mail'])
 
 
 class _Mail(_MailMixin):
@@ -255,44 +257,33 @@ class _Mail(_MailMixin):
 
 class Mail(_MailMixin):
 
-    def __init__(self, config):
-        self.init_app(config)
-
-    def init_mail(self, config, debug=False, testing=False):
+    def __init__(self, app):
+        self.app = app
+        if app is not None:
+            self.state = self.init_app(app)
+        else:
+            self.state = None
+    def init_mail(self, settings, debug=False, testing=False):
         return _Mail(
-            config.get('MAIL_SERVER', '127.0.0.1'),
-            config.get('MAIL_USERNAME'),
-            config.get('MAIL_PASSWORD'),
-            config.get('MAIL_PORT', 25),
-            config.get('MAIL_USE_TLS', False),
-            config.get('MAIL_USE_SSL', False),
-            config.get('MAIL_DEFAULT_SENDER'),
-            int(config.get('MAIL_DEBUG', debug)),
-            config.get('MAIL_MAX_EMAILS'),
-            config.get('MAIL_SUPPRESS_SEND', testing),
-            config.get('MAIL_ASCII_ATTACHMENTS', False)
+            settings.get('mail_server', '127.0.0.1'),
+            settings.get('mail_username'),
+            settings.get('mail_password'),
+            settings.get('mail_port', 25),
+            settings.get('mail_use_tls', False),
+            settings.get('mail_use_ssl', False),
+            settings.get('mail_default_sender'),
+            int(settings.get('mail_debug', debug)),
+            settings.get('mail_max_emails'),
+            settings.get('mail_suppress_send', testing),
+            settings.get('mail_ascii_attachments', False)
         )
 
-    def init_app(self, config):
-        state = self.init_mail(config, debug=True)
+    def init_app(self, app):
+        state = self.init_mail(app.settings, debug=app.settings.get('debug'))
+
+        app.extensions = getattr(app, 'extensions', {})
+        app.extensions['mail'] = state
+        global Application
+        Application = app
+
         return state
-
-
-if __name__ == '__main__':
-    config = dict(
-        MAIL_SERVER='smtp.ym.163.com',
-        MAIL_PORT=465,
-        MAIL_USERNAME='ApeSo@finder.ren',
-        MAIL_PASSWORD='723520wei',
-        MAIL_USE_SSL=True,
-        MAIL_DEFAULT_SENDER='ApeSo@finder.ren',
-        MAIL_RECIPIENTS=['819799762@qq.com', 'dongbingwei@lsh123.com']
-    )
-    mail = Mail(config)
-    _mail = mail.init_app(config)
-    msg = Message(
-        'Hello Tornado',
-        sender=config.get('MAIL_DEFAULT_SENDER'),
-        recipients=config.get('MAIL_RECIPIENTS')
-    )
-    mail.send(msg, _mail)
